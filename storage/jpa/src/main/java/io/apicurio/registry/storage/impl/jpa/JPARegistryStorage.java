@@ -19,9 +19,10 @@ package io.apicurio.registry.storage.impl.jpa;
 import io.apicurio.registry.content.ContentHandle;
 import io.apicurio.registry.content.canon.ContentCanonicalizer;
 import io.apicurio.registry.content.extract.ContentExtractor;
+import io.apicurio.registry.logging.Logged;
 import io.apicurio.registry.metrics.PersistenceExceptionLivenessApply;
 import io.apicurio.registry.metrics.PersistenceTimeoutReadinessApply;
-import io.apicurio.registry.rest.beans.EditableMetaData;
+import io.apicurio.registry.rest.beans.*;
 import io.apicurio.registry.storage.ArtifactAlreadyExistsException;
 import io.apicurio.registry.storage.ArtifactMetaDataDto;
 import io.apicurio.registry.storage.ArtifactNotFoundException;
@@ -45,6 +46,7 @@ import io.apicurio.registry.types.ArtifactType;
 import io.apicurio.registry.types.RuleType;
 import io.apicurio.registry.types.provider.ArtifactTypeUtilProvider;
 import io.apicurio.registry.types.provider.ArtifactTypeUtilProviderFactory;
+import io.apicurio.registry.util.SearchUtil;
 import org.eclipse.microprofile.metrics.annotation.ConcurrentGauge;
 import org.eclipse.microprofile.metrics.annotation.Counted;
 import org.eclipse.microprofile.metrics.annotation.Timed;
@@ -67,15 +69,15 @@ import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
-import javax.persistence.EntityManager;
-import javax.persistence.NoResultException;
-import javax.persistence.PersistenceException;
-import javax.persistence.TypedQuery;
+import javax.persistence.*;
 import javax.transaction.Transactional;
 
 @ApplicationScoped
@@ -84,6 +86,7 @@ import javax.transaction.Transactional;
 @Counted(name = STORAGE_OPERATION_COUNT, description = STORAGE_OPERATION_COUNT_DESC, tags = {"group=" + STORAGE_GROUP_TAG, "metric=" + STORAGE_OPERATION_COUNT})
 @ConcurrentGauge(name = STORAGE_CONCURRENT_OPERATION_COUNT, description = STORAGE_CONCURRENT_OPERATION_COUNT_DESC, tags = {"group=" + STORAGE_GROUP_TAG, "metric=" + STORAGE_CONCURRENT_OPERATION_COUNT})
 @Timed(name = STORAGE_OPERATION_TIME, description = STORAGE_OPERATION_TIME_DESC, tags = {"group=" + STORAGE_GROUP_TAG, "metric=" + STORAGE_OPERATION_TIME}, unit = MILLISECONDS)
+@Logged
 public class JPARegistryStorage implements RegistryStorage {
 
     @Inject
@@ -233,6 +236,47 @@ public class JPARegistryStorage implements RegistryStorage {
         }
     }
 
+    private ArtifactSearchResults buildSearchResultFromIds(List<String> artifactIds, Integer itemCount) {
+
+        final List<ArtifactMetaDataDto> artifactsMetaData = new ArrayList<>();
+        for (String artifactId: artifactIds) {
+
+            artifactsMetaData.add(getArtifactMetaData(artifactId));
+        }
+
+        return buildSearchResultsFromMetaData(artifactsMetaData, itemCount);
+    }
+
+    private static ArtifactSearchResults buildSearchResultsFromMetaData(List<ArtifactMetaDataDto> artifactsMetaData, Integer itemCount) {
+
+        final ArtifactSearchResults artifactSearchResults = new ArtifactSearchResults();
+        final List<SearchedArtifact> searchedArtifacts = new ArrayList<>();
+        for (ArtifactMetaDataDto artifactMetaDataDto : artifactsMetaData) {
+
+            SearchedArtifact searchedArtifact = SearchUtil.buildSearchedArtifact(artifactMetaDataDto);
+            searchedArtifacts.add(searchedArtifact);
+        }
+        artifactSearchResults.setArtifacts(searchedArtifacts);
+        artifactSearchResults.setCount(itemCount);
+
+        return artifactSearchResults;
+    }
+
+    private static String buildSearchAndClauseFromSearchOver(SearchOver searchOver) {
+
+        switch (searchOver) {
+        case description:
+            return "AND (m.key= 'description' AND (0 < LOCATE(:search, m.value))) ";
+        case name:
+            return "AND (m.key= 'name' AND (0 < LOCATE(:search, m.value))) ";
+        case labels:
+            //TODO not implemented yet
+        default:
+            return "AND (0 < LOCATE(:search, m.value)) ";
+        }
+
+    }
+
     // ========================================================================
 
     @Override
@@ -280,6 +324,10 @@ public class JPARegistryStorage implements RegistryStorage {
             MetaDataMapperUpdater mdmu = new MetaDataMapperUpdater()
                 .update(MetaDataKeys.STATE, ArtifactState.ENABLED.name())
                 .update(MetaDataKeys.TYPE, artifactType.value());
+            // TODO not yet properly handling createdOn vs. modifiedOn for multiple versions
+            String currentTimeMillis = String.valueOf(System.currentTimeMillis());
+            mdmu.update(MetaDataKeys.CREATED_ON, currentTimeMillis);
+            mdmu.update(MetaDataKeys.MODIFIED_ON, currentTimeMillis);
 
             extractMetaData(artifactType, content, mdmu);
 
@@ -402,6 +450,45 @@ public class JPARegistryStorage implements RegistryStorage {
         }
     }
 
+    @Override
+    @Transactional
+    public ArtifactSearchResults searchArtifacts(String search, int offset,
+            int limit, SearchOver searchOver, SortOrder sortOrder) {
+
+        final String countQuery =
+                "SELECT count ( distinct m.artifactId)  FROM MetaData m "
+                        + "WHERE m.version = "
+                        + "(SELECT max(m2.version) "
+                        + "FROM MetaData m2 WHERE m.artifactId = m2.artifactId) "
+                        + (search == null ? "" : buildSearchAndClauseFromSearchOver(searchOver))
+                + " AND m.artifactId IN (select a.artifactId from Artifact a) ";
+
+        final String searchQuery =
+                "SELECT distinct m.artifactId FROM MetaData m "
+                        + "WHERE m.version = "
+                        + "(SELECT max(m2.version) "
+                        + "FROM MetaData m2 WHERE m.artifactId = m2.artifactId) "
+                        +  (search == null ? "" : buildSearchAndClauseFromSearchOver(searchOver))
+                        + " AND m.artifactId IN (select a.artifactId from Artifact a) "
+                        + "ORDER BY m.artifactId " + sortOrder
+                        .value();
+
+        final TypedQuery<Long> count = entityManager.createQuery(countQuery, Long.class);
+        final TypedQuery<String> matchedArtifactsQuery = entityManager.createQuery(searchQuery, String.class);
+
+        if (null != search) {
+            count.setParameter("search", search);
+            matchedArtifactsQuery.setParameter("search", search);
+        }
+
+        final List<String> matchedArtifacts = matchedArtifactsQuery
+                .setFirstResult(offset)
+                .setMaxResults(limit)
+                .getResultList();
+
+        return buildSearchResultFromIds(matchedArtifacts, count.getSingleResult().intValue());
+    }
+
     // =======================================================
 
     @Override
@@ -424,6 +511,7 @@ public class JPARegistryStorage implements RegistryStorage {
      * @see io.apicurio.registry.storage.RegistryStorage#getArtifactMetaData(java.lang.String, io.apicurio.registry.content.ContentHandle)
      */
     @Override
+    @Transactional
     public ArtifactMetaDataDto getArtifactMetaData(String artifactId, ContentHandle content) throws ArtifactNotFoundException, RegistryStorageException {
         try {
             requireNonNull(artifactId);
@@ -431,7 +519,7 @@ public class JPARegistryStorage implements RegistryStorage {
             // Get the meta-data for the artifact
             ArtifactMetaDataDto metaData = getArtifactMetaData(artifactId);
 
-            // Create a canonicalizer for the artifact based on its type, and then 
+            // Create a canonicalizer for the artifact based on its type, and then
             // canonicalize the inbound content
             ArtifactTypeUtilProvider provider = factory.getArtifactTypeProvider(metaData.getType());
             ContentCanonicalizer canonicalizer = provider.getContentCanonicalizer();
@@ -657,6 +745,26 @@ public class JPARegistryStorage implements RegistryStorage {
         } catch (PersistenceException ex) {
             throw new RegistryStorageException(ex);
         }
+    }
+
+    @Override
+    public VersionSearchResults searchVersions(String artifactId, int offset, int limit) {
+
+        final VersionSearchResults versionSearchResults = new VersionSearchResults();
+        final LongAdder itemsCount = new LongAdder();
+
+        final List<SearchedVersion> versions = getArtifactVersions(artifactId).stream()
+                .peek(version -> itemsCount.increment())
+                .sorted(Long::compareTo)
+                .skip(offset)
+                .limit(limit)
+                .map(version -> SearchUtil.buildSearchedVersion(getArtifactVersionMetaData(artifactId, version)))
+                .collect(Collectors.toList());
+
+        versionSearchResults.setVersions(versions);
+        versionSearchResults.setCount(itemsCount.intValue());
+
+        return versionSearchResults;
     }
 
     @Override

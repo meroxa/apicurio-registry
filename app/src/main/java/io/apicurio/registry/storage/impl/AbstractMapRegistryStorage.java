@@ -16,10 +16,33 @@
 
 package io.apicurio.registry.storage.impl;
 
+import static io.apicurio.registry.storage.MetaDataKeys.VERSION;
+import static io.apicurio.registry.utils.StringUtil.isEmpty;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BiFunction;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import javax.annotation.PostConstruct;
+import javax.inject.Inject;
+
 import io.apicurio.registry.content.ContentHandle;
 import io.apicurio.registry.content.canon.ContentCanonicalizer;
 import io.apicurio.registry.content.extract.ContentExtractor;
-import io.apicurio.registry.rest.beans.EditableMetaData;
+import io.apicurio.registry.rest.beans.*;
 import io.apicurio.registry.storage.ArtifactAlreadyExistsException;
 import io.apicurio.registry.storage.ArtifactMetaDataDto;
 import io.apicurio.registry.storage.ArtifactNotFoundException;
@@ -39,27 +62,7 @@ import io.apicurio.registry.types.ArtifactType;
 import io.apicurio.registry.types.RuleType;
 import io.apicurio.registry.types.provider.ArtifactTypeUtilProvider;
 import io.apicurio.registry.types.provider.ArtifactTypeUtilProviderFactory;
-
-import static io.apicurio.registry.storage.MetaDataKeys.VERSION;
-import static io.apicurio.registry.utils.StringUtil.isEmpty;
-
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.SortedSet;
-import java.util.TreeSet;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BiFunction;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import io.apicurio.registry.util.SearchUtil;
 
 /**
  * Base class for all map-based registry storage implementation.  Examples of 
@@ -129,6 +132,30 @@ public abstract class AbstractMapRegistryStorage implements RegistryStorage {
         ArtifactStateExt.logIfDeprecated(artifactId, ArtifactStateExt.getState(latest), latest.get(VERSION));
 
         return latest;
+    }
+
+    private boolean filterSearchResult(String search, String artifactId, SearchOver searchOver) {
+        if (search == null || search.trim().isEmpty()) {
+            return true;
+        }
+        try {
+            switch (searchOver) {
+                case name:
+                case description:
+                    String value = getLatestContentMap(artifactId, ArtifactStateExt.ACTIVE_STATES).get(searchOver.name());
+                    return value != null && value.contains(search);
+                case labels:
+                    //TODO not implemented yet
+                    return false;
+                default:
+                    return getLatestContentMap(artifactId, ArtifactStateExt.ACTIVE_STATES)
+                        .values()
+                        .stream()
+                        .anyMatch(v -> v != null && v.contains(search));
+            }
+        } catch (ArtifactNotFoundException notFound) {
+            return false;
+        }
     }
 
     public static StoredArtifact toStoredArtifact(Map<String, String> content) {
@@ -287,6 +314,7 @@ public abstract class AbstractMapRegistryStorage implements RegistryStorage {
             long globalId = Long.parseLong(m.get(MetaDataKeys.GLOBAL_ID));
             global.remove(globalId);
         });
+        this.deleteArtifactRulesInternal(artifactId);
         return new TreeSet<>(v2c.keySet());
     }
 
@@ -318,6 +346,30 @@ public abstract class AbstractMapRegistryStorage implements RegistryStorage {
     @Override
     public Set<String> getArtifactIds() {
         return storage.keySet();
+    }
+
+    /**
+     * @see io.apicurio.registry.storage.RegistryStorage#searchArtifacts(String, int, int, SearchOver, SortOrder) ()
+     */
+    @Override
+    public ArtifactSearchResults searchArtifacts(String search, int offset, int limit, SearchOver over, SortOrder order) {
+
+        final LongAdder itemsCount = new LongAdder();
+        final List<SearchedArtifact> matchedArtifacts = getArtifactIds()
+            .stream()
+            .filter(artifactId -> filterSearchResult(search, artifactId, over))
+            .peek(artifactId -> itemsCount.increment())
+            .sorted(SearchUtil.comparator(order))
+            .skip(offset)
+            .limit(limit)
+            .map(artifactId -> SearchUtil.buildSearchedArtifact(getArtifactMetaData(artifactId)))
+            .collect(Collectors.toList());
+
+        final ArtifactSearchResults artifactSearchResults = new ArtifactSearchResults();
+        artifactSearchResults.setArtifacts(matchedArtifacts);
+        artifactSearchResults.setCount(itemsCount.intValue());
+
+        return artifactSearchResults;
     }
 
     /**
@@ -407,6 +459,15 @@ public abstract class AbstractMapRegistryStorage implements RegistryStorage {
     public void deleteArtifactRules(String artifactId) throws ArtifactNotFoundException, RegistryStorageException {
         // check if artifact exists
         getVersion2ContentMap(artifactId);
+        this.deleteArtifactRulesInternal(artifactId);
+    }
+    
+    /**
+     * Internal delete of artifact rules without checking for existence of artifact first.
+     * @param artifactId
+     * @throws RegistryStorageException
+     */
+    protected void deleteArtifactRulesInternal(String artifactId) throws RegistryStorageException {
         // delete rules
         artifactRules.remove(artifactId);
     }
@@ -477,6 +538,30 @@ public abstract class AbstractMapRegistryStorage implements RegistryStorage {
         Map<Long, Map<String, String>> v2c = getVersion2ContentMap(artifactId);
         // TODO -- always new TreeSet ... optimization?!
         return new TreeSet<>(v2c.keySet());
+    }
+
+    /**
+     * @see io.apicurio.registry.storage.RegistryStorage#searchVersions(String, int, int) (java.lang.String)
+     */
+    @Override
+    public VersionSearchResults searchVersions(String artifactId, int offset, int limit) throws ArtifactNotFoundException, RegistryStorageException {
+
+        final VersionSearchResults versionSearchResults = new VersionSearchResults();
+        final Map<Long, Map<String, String>> v2c = getVersion2ContentMap(artifactId);
+        final LongAdder itemsCount = new LongAdder();
+        final List<SearchedVersion> artifactVersions = v2c.keySet().stream()
+                .peek(version -> itemsCount.increment())
+                .sorted(Long::compareTo)
+                .skip(offset)
+                .limit(limit)
+                .map(version -> MetaDataKeys.toArtifactVersionMetaData(v2c.get(version)))
+                .map(SearchUtil::buildSearchedVersion)
+                .collect(Collectors.toList());
+
+        versionSearchResults.setVersions(artifactVersions);
+        versionSearchResults.setCount(itemsCount.intValue());
+
+        return versionSearchResults;
     }
 
     /**

@@ -17,6 +17,10 @@
 package io.apicurio.registry.storage;
 
 import io.apicurio.registry.content.ContentHandle;
+import io.apicurio.registry.rest.beans.ArtifactSearchResults;
+import io.apicurio.registry.rest.beans.SearchOver;
+import io.apicurio.registry.rest.beans.SortOrder;
+import io.apicurio.registry.rest.beans.VersionSearchResults;
 import io.apicurio.registry.types.ArtifactState;
 import io.apicurio.registry.types.ArtifactType;
 import io.apicurio.registry.types.RuleType;
@@ -122,6 +126,17 @@ public interface RegistryStorage {
     public Set<String> getArtifactIds(/* TODO -- filter? */);
 
     /**
+     * Search artifacts by given criteria
+     * @return all artifact that matches the given criteria
+     * @param search the text to search in the artifact metadata
+     * @param limit the result size limit
+     * @param offset the number of artifacts to skip
+     * @param searchOver the fields to search over
+     * @param sortOrder the ordering used
+     */
+    public ArtifactSearchResults searchArtifacts(String search, int offset, int limit, SearchOver searchOver, SortOrder sortOrder);
+
+    /**
      * Gets the stored meta-data for an artifact by ID.  This will include client-editable meta-data such as 
      * name and description, but also generated meta-data such as "modifedOn" and "versionId".
      * @param artifactId
@@ -225,6 +240,15 @@ public interface RegistryStorage {
      * @throws RegistryStorageException
      */
     public SortedSet<Long> getArtifactVersions(String artifactId) throws ArtifactNotFoundException, RegistryStorageException;
+
+    /**
+     * Fetch the versions of the given artifact
+     * @return the artifact versions, limited
+     * @param artifactId the artifact used to fetch versions
+     * @param limit the result size limit
+     * @param offset the number of versions to skip
+     */
+    public VersionSearchResults searchVersions(String artifactId, int offset, int limit);
 
     /**
      * Gets the most recent version of the content of the artifact with the given global ID.

@@ -1,4 +1,5 @@
-[![CircleCI](https://circleci.com/gh/Apicurio/apicurio-registry.svg?style=svg)](https://circleci.com/gh/Apicurio/apicurio-registry)
+[![Verify Build Workflow](https://github.com/Apicurio/apicurio-registry/workflows/Verify%20Build%20Workflow/badge.svg)](https://github.com/Apicurio/apicurio-registry/actions?query=workflow%3A%22Verify+Build+Workflow%22)
+[![Automated Release Notes by gren](https://img.shields.io/badge/%F0%9F%A4%96-release%20notes-00B2EE.svg)](https://github-tools.github.io/github-release-notes/)
 
 # Apicurio Registry
 
@@ -117,8 +118,32 @@ For the actual configuration options check (although best config docs are in the
 
 To help setup development / testing environment for the module, see streams_setup.sh script. You just need to have KAFKA_HOME env variable set, and script does the rest.
 
-### Docker container
-The same options are available for the docker containers, but only in the form of environment variables (The command line parameters are for the `java` executable and at the moment it's not possible to pass them into the container).
+## Docker containers
+Every time a commit is pushed to `master` an updated set of docker images are built and pushed to Docker 
+Hub.  There are several docker images to choose from, one for each storage option.  The images include:
+
+* [apicurio-registry-mem](https://hub.docker.com/r/apicurio/apicurio-registry-mem)
+* [apicurio-registry-jpa](https://hub.docker.com/r/apicurio/apicurio-registry-jps)
+* [apicurio-registry-infinispan](https://hub.docker.com/r/apicurio/apicurio-registry-infinispan)
+* [apicurio-registry-streams](https://hub.docker.com/r/apicurio/apicurio-registry-streams)
+* [apicurio-registry-kafka](https://hub.docker.com/r/apicurio/apicurio-registry-kafka)
+
+Run one of the above docker images like this:
+
+    docker run -it -p 8080:8080 apicurio/apicurio-registry-mem
+
+The same configuration options are available for the docker containers, but only in the form of environment 
+variables (The command line parameters are for the `java` executable and at the moment it's not possible to 
+pass them into the container).  Each docker image will support the environment variable configuration options
+documented above for their respective storage type.
+
+There are a variety of docker image tags to choose from when running the registry docker images.  Each
+release of the project has a specific tag associated with it.  So release `1.2.0.Final` has an equivalent
+docker tag specific to that release.  We also support the following moving tags:
+
+* `latest-snapshot` : represents the most recent docker image produced whenever the `master` branch is updated
+* `latest-release` : represents the latest stable (released) build of Apicurio Registry
+* `latest` : represents the absolute newest build - essentially the newer of `latest-release` or `latest-snapshot`
 
 ## Examples
 
@@ -147,3 +172,80 @@ services:
 ```
   - Run `docker-compose -f test.yml up`
 
+## Security
+
+To run Apicurio Registry against secured Kafka broker(s) in Docker/Kubernetes/OpenShift,
+you can put the following system properties into JAVA_OPTIONS env var:
+
+* -D%dev.registry.streams.topology.security.protocol=SSL
+* -D%dev.registry.streams.topology.ssl.truststore.location=[location]
+* -D%dev.registry.streams.topology.ssl.truststore.password=[password]
+* -D%dev.registry.streams.topology.ssl.truststore.type=[type]
+* (optional) -D%dev.registry.streams.topology.ssl.endpoint.identification.algorithm=
+* -D%dev.registry.streams.storage-producer.security.protocol=SSL
+* -D%dev.registry.streams.storage-producer.ssl.truststore.location=[location]
+* -D%dev.registry.streams.storage-producer.ssl.truststore.password=[password]
+* -D%dev.registry.streams.storage-producer.ssl.truststore.type=[type]
+* (optional) -D%dev.registry.streams.storage-producer.ssl.endpoint.identification.algorithm=
+* etc ...
+
+Of course that %dev depends on the Quarkus profile you're gonna use -- should be %prod when used in production.
+
+
+## Eclipse IDE
+
+Some notes about using the Eclipse IDE with the Apicurio Registry codebase.  Before
+importing the registry into your workspace, we recommend some configuration of the 
+Eclipse IDE.
+
+### Lombok Integration
+
+We use the Lombok code generation utility in a few places.  This will cause problems
+when Eclipse builds the sources unless you install the Lombok+Eclipse integration.  To
+do this, either download the Lombok JAR or find it in your `.m2/repository`
+directory (it will be available in `.m2` if you've done a maven build of the registry).
+Once you find that JAR, simply "run" it (e.g. double-click it) and using the resulting
+UI installer to install Lombok support in Eclipse.
+
+### Maven Dependency Plugin (unpack, unpack-dependencies)
+
+We use the **maven-dependency-plugin** in a few places to unpack a maven module in the
+reactor into another module.  For example, the `app` module unpacks the contents of
+the `ui` module to include/embed the user interface into the running application.
+Eclipse does not like this.  To fix this, configure the Eclipse Maven "Lifecycle Mappings"
+to ignore the usage of **maven-dependency-plugin**.  
+
+* Open up **Window->Preferences**
+* Choose **Maven->Lifecycle Mappings**
+* Click the button labeled **Open workspace lifecycle mappings metadata**
+* This will open an XML file behind the preferences dialog.  Click **Cancel** to close the Preferences.
+* Add the following section to the file:
+
+```
+    <pluginExecution>
+      <pluginExecutionFilter>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <versionRange>3.1.2</versionRange>
+        <goals>
+          <goal>unpack</goal>
+          <goal>unpack-dependencies</goal>
+        </goals>
+      </pluginExecutionFilter>
+      <action>
+        <ignore />
+      </action>
+    </pluginExecution>
+```
+
+* Now go back into **Maven->Lifecycle Mappings** -> **Maven->Lifecycle Mappings** and click 
+the **Reload workspace lifecycle mappings metadata** button.
+* If you've already imported the Apicurio projects, select all of them and choose **Maven->Update Project**.
+
+### Prevent Eclipse from aggressively cleaning generated classes
+
+We use some Google Protobuf files and a maven plugin to generate some Java classes that
+get stored in various modules' `target` directories.  These are then recognized by m2e
+but are sometimes deleted during the Eclipse "clean" phase.  To prevent Eclipse from
+over-cleaning these files, find the **os-maven-plugin-1.6.2.jar** JAR in your 
+`.m2/repository` directory and copy it into `$ECLIPSE_HOME/dropins`.

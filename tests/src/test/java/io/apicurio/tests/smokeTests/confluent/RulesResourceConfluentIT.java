@@ -17,9 +17,10 @@
 package io.apicurio.tests.smokeTests.confluent;
 
 import io.apicurio.registry.utils.tests.TestUtils;
-import io.apicurio.tests.BaseIT;
+import io.apicurio.tests.ConfluentBaseIT;
 import io.apicurio.tests.utils.subUtils.GlobalRuleUtils;
 import org.apache.avro.Schema;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -28,7 +29,7 @@ import org.slf4j.LoggerFactory;
 import static io.apicurio.tests.Constants.SMOKE;
 
 @Tag(SMOKE)
-public class RulesResourceConfluentIT extends BaseIT {
+public class RulesResourceConfluentIT extends ConfluentBaseIT {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MetadataConfluentIT.class);
 
@@ -57,5 +58,10 @@ public class RulesResourceConfluentIT extends BaseIT {
         GlobalRuleUtils.testCompatibility("{\"type\":\"INVALID\",\"config\":\"invalid\"}", schemeSubject, 400);
 
         confluentService.deleteSubject(schemeSubject);
+    }
+
+    @AfterAll
+    static void clearRules() {
+        GlobalRuleUtils.deleteAllGlobalRules();
     }
 }

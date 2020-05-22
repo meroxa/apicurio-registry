@@ -45,7 +45,7 @@ public class TestUpdateRegistryMojoTest extends RegistryMojoTestBase {
     @BeforeEach
     public void createMojo() {
         this.mojo = new TestUpdateRegistryMojo();
-        this.mojo.registryUrl = "http://localhost:8081";
+        this.mojo.registryUrl = "http://localhost:8081/api";
     }
 
     @RegistryServiceTest
@@ -60,7 +60,7 @@ public class TestUpdateRegistryMojoTest extends RegistryMojoTestBase {
                                                   "     {\"name\": \"favorite_number\",  \"type\": \"int\"}" +
                                                   " ]" +
                                                   "}");
-        CompletionStage<ArtifactMetaData> cs = supplier.get().createArtifact(ArtifactType.AVRO, artifactId, new ByteArrayInputStream(schema.toString().getBytes(StandardCharsets.UTF_8)));
+        CompletionStage<ArtifactMetaData> cs = supplier.get().createArtifact(ArtifactType.AVRO, artifactId, null, new ByteArrayInputStream(schema.toString().getBytes(StandardCharsets.UTF_8)));
         cs.toCompletableFuture().get();
 
         Rule rule = new Rule();

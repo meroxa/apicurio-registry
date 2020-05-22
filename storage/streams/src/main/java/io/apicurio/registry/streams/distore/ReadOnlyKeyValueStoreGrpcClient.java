@@ -1,16 +1,10 @@
 package io.apicurio.registry.streams.distore;
 
 import com.google.protobuf.ByteString;
-import io.apicurio.registry.streams.distore.proto.KeyFromKeyToReq;
-import io.apicurio.registry.streams.distore.proto.KeyReq;
-import io.apicurio.registry.streams.distore.proto.KeyValueStoreGrpc;
-import io.apicurio.registry.streams.distore.proto.Size;
-import io.apicurio.registry.streams.distore.proto.Value;
-import io.apicurio.registry.streams.distore.proto.VoidReq;
+import io.apicurio.registry.streams.distore.proto.*;
 import io.grpc.Channel;
 import io.grpc.ManagedChannel;
 import org.apache.kafka.common.serialization.Serde;
-import org.apache.kafka.common.utils.CloseableIterator;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
@@ -40,15 +34,33 @@ public class ReadOnlyKeyValueStoreGrpcClient<K, V> implements ExtReadOnlyKeyValu
     }
 
     @Override
-    public CloseableIterator<K> allKeys() {
+    public Stream<K> allKeys() {
         StreamObserverSpliterator<io.apicurio.registry.streams.distore.proto.Key> observer = new StreamObserverSpliterator<>();
         stub.allKeys(
             VoidReq.newBuilder()
-                   .setStoreName(storeName)
-                   .build(),
+                .setStoreName(storeName)
+                .build(),
             observer
         );
-        return new StreamToKeyIteratorAdapter<>(observer.stream(), keyValueSerde);
+        return observer.stream().map(res -> {
+            ByteString key = res.getKey();
+            return keyValueSerde.deserializeKey(key.toByteArray());
+        });
+    }
+
+    @Override
+    public Stream<KeyValue<K, V>> filter(String filter, String over) {
+        StreamObserverSpliterator<io.apicurio.registry.streams.distore.proto.KeyValue> observer = new StreamObserverSpliterator<>();
+        stub.filter(
+            FilterReq
+                .newBuilder()
+                .setFilter(filter)
+                .setOver(over)
+                .setStoreName(storeName)
+                .build(),
+            observer
+        );
+        return keyValueStream(observer.stream());
     }
 
     // AutoCloseable
@@ -126,14 +138,18 @@ public class ReadOnlyKeyValueStoreGrpcClient<K, V> implements ExtReadOnlyKeyValu
 
     private KeyValueIterator<K, V> keyValueIterator(Stream<io.apicurio.registry.streams.distore.proto.KeyValue> stream) {
         return new StreamToKeyValueIteratorAdapter<>(
-            stream
-                .map(
-                    kv ->
-                        new KeyValue<>(
-                            keyValueSerde.deserializeKey(kv.getKey().toByteArray()),
-                            keyValueSerde.deserializeVal(kv.getValue().toByteArray())
-                        )
-                )
+            keyValueStream(stream)
         );
+    }
+
+    private Stream<KeyValue<K, V>> keyValueStream(Stream<io.apicurio.registry.streams.distore.proto.KeyValue> stream) {
+        return stream
+            .map(
+                kv ->
+                    new KeyValue<>(
+                        keyValueSerde.deserializeKey(kv.getKey().toByteArray()),
+                        keyValueSerde.deserializeVal(kv.getValue().toByteArray())
+                    )
+            );
     }
 }

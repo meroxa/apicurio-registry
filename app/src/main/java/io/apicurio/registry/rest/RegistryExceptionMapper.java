@@ -16,6 +16,32 @@
 
 package io.apicurio.registry.rest;
 
+import static java.net.HttpURLConnection.HTTP_BAD_REQUEST;
+import static java.net.HttpURLConnection.HTTP_CONFLICT;
+import static java.net.HttpURLConnection.HTTP_INTERNAL_ERROR;
+import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+import javax.enterprise.context.ApplicationScoped;
+import javax.inject.Inject;
+import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.BadRequestException;
+import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.ext.ExceptionMapper;
+import javax.ws.rs.ext.Provider;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.apicurio.registry.ccompat.rest.error.ConflictException;
 import io.apicurio.registry.ccompat.rest.error.UnprocessableEntityException;
 import io.apicurio.registry.metrics.ResponseErrorLivenessCheck;
@@ -29,26 +55,6 @@ import io.apicurio.registry.storage.NotFoundException;
 import io.apicurio.registry.storage.RuleAlreadyExistsException;
 import io.apicurio.registry.storage.RuleNotFoundException;
 import io.apicurio.registry.storage.VersionNotFoundException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static java.net.HttpURLConnection.HTTP_BAD_REQUEST;
-import static java.net.HttpURLConnection.HTTP_CONFLICT;
-import static java.net.HttpURLConnection.HTTP_INTERNAL_ERROR;
-import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
-
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
-import javax.ws.rs.BadRequestException;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.ext.ExceptionMapper;
-import javax.ws.rs.ext.Provider;
 
 /**
  * @author eric.wittmann@gmail.com
@@ -67,6 +73,9 @@ public class RegistryExceptionMapper implements ExceptionMapper<Throwable> {
 
     @Inject
     ResponseErrorLivenessCheck liveness;
+
+    @Context
+    HttpServletRequest request;
 
     static {
         Map<Class<? extends Exception>, Integer> map = new HashMap<>();
@@ -112,16 +121,46 @@ public class RegistryExceptionMapper implements ExceptionMapper<Throwable> {
         }
 
         Error error = toError(t, code);
+        if (isCompatEndpoint()) {
+            error.setDetail(null);
+        }
         return builder.type(MediaType.APPLICATION_JSON)
                       .entity(error)
                       .build();
+    }
+
+    /**
+     * Returns true if the endpoint that caused the error is a "ccompat" endpoint.  If so
+     * we need to simplify the error we return.  The apicurio error structure has at least 
+     * one additional property.
+     */
+    private boolean isCompatEndpoint() {
+        if (this.request != null) {
+            return this.request.getRequestURI().contains("ccompat");
+        }
+        return false;
     }
 
     private static Error toError(Throwable t, int code) {
         Error error = new Error();
         error.setErrorCode(code);
         error.setMessage(t.getLocalizedMessage());
-        // TODO also return a full stack trace as "detail"?
+        error.setDetail(getStackTrace(t));
         return error;
     }
+    
+    /**
+     * Gets the full stack trace for the given exception and returns it as a
+     * string.
+     * @param t
+     */
+    private static String getStackTrace(Throwable t) {
+        try (StringWriter writer = new StringWriter()) {
+            t.printStackTrace(new PrintWriter(writer));
+            return writer.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    
 }

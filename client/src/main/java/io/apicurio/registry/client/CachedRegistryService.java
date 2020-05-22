@@ -16,24 +16,19 @@
 
 package io.apicurio.registry.client;
 
-import io.apicurio.registry.rest.beans.ArtifactMetaData;
-import io.apicurio.registry.rest.beans.EditableMetaData;
-import io.apicurio.registry.rest.beans.Rule;
-import io.apicurio.registry.rest.beans.UpdateState;
-import io.apicurio.registry.rest.beans.VersionMetaData;
+import io.apicurio.registry.rest.beans.*;
 import io.apicurio.registry.types.ArtifactType;
 import io.apicurio.registry.types.RuleType;
 import io.apicurio.registry.utils.IoUtil;
 
-import java.io.InputStream;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
 import javax.enterprise.inject.Vetoed;
 import javax.ws.rs.Path;
 import javax.ws.rs.core.Response;
+import java.io.InputStream;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author Ales Justin
@@ -110,8 +105,9 @@ class CachedRegistryService implements RegistryService {
     }
 
     @Override
-    public CompletionStage<ArtifactMetaData> createArtifact(ArtifactType xRegistryArtifactType, String xRegistryArtifactId, InputStream data) {
-        CompletionStage<ArtifactMetaData> cs = getDelegate().createArtifact(xRegistryArtifactType, xRegistryArtifactId, data);
+    public CompletionStage<ArtifactMetaData> createArtifact(ArtifactType xRegistryArtifactType,
+            String xRegistryArtifactId, IfExistsType ifExists, InputStream data) {
+        CompletionStage<ArtifactMetaData> cs = getDelegate().createArtifact(xRegistryArtifactType, xRegistryArtifactId, ifExists, data);
         return cs.thenApply(amd -> {
             globalAMD.put(amd.getGlobalId(), amd);
             return amd;
@@ -119,8 +115,8 @@ class CachedRegistryService implements RegistryService {
     }
 
     @Override
-    public Set<String> getArtifactIds() {
-        return getDelegate().getArtifactIds();
+    public List<String> listArtifacts() {
+        return getDelegate().listArtifacts();
     }
 
     @Override
@@ -205,12 +201,6 @@ class CachedRegistryService implements RegistryService {
     }
 
     @Override
-    public void deleteArtifactVersion(Integer version, String artifactId) {
-        getDelegate().deleteArtifactVersion(version, artifactId);
-        reset();
-    }
-
-    @Override
     public void deleteArtifactVersionMetaData(Integer version, String artifactId) {
         getDelegate().deleteArtifactVersionMetaData(version, artifactId);
         reset();
@@ -287,5 +277,17 @@ class CachedRegistryService implements RegistryService {
     @Override
     public void close() throws Exception {
         getDelegate().close();
+    }
+
+    // Search
+
+    @Override
+    public ArtifactSearchResults searchArtifacts(String search, Integer offset, Integer limit, SearchOver over, SortOrder order) {
+        return getDelegate().searchArtifacts(search, offset, limit, over, order);
+    }
+
+    @Override
+    public VersionSearchResults searchVersions(String artifactId, Integer offset, Integer limit) {
+        return getDelegate().searchVersions(artifactId, offset, limit);
     }
 }

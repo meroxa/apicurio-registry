@@ -310,6 +310,7 @@ public class AvroData {
   private boolean connectMetaData;
   private boolean enhancedSchemaSupport;
 
+  @SuppressWarnings("unused")
   private static class AvroSchemaAndVersion {
     private org.apache.avro.Schema schema;
     private Integer version;
@@ -388,7 +389,8 @@ public class AvroData {
    *                                       null
    * @return the converted data
    */
-  private static Object fromConnectData(
+  @SuppressWarnings("unused")
+private static Object fromConnectData(
       Schema schema, org.apache.avro.Schema avroSchema,
       Object logicalValue, boolean requireContainer,
       boolean requireSchemalessContainerNull, boolean enhancedSchemaSupport
@@ -1133,7 +1135,7 @@ public class AvroData {
             ObjectNode node = JsonNodeFactory.instance.objectNode();
             for (Map.Entry<String, Object> entry : ((Map<String, Object>) defaultVal).entrySet()) {
               JsonNode entryDef = defaultValueFromConnect(schema.valueSchema(), entry.getValue());
-              node.put(entry.getKey(), entryDef);
+              node.replace(entry.getKey(), entryDef);
             }
             return node;
           } else {
@@ -1153,7 +1155,7 @@ public class AvroData {
           Struct struct = ((Struct) defaultVal);
           for (Field field : (schema.fields())) {
             JsonNode fieldDef = defaultValueFromConnect(field.schema(), struct.get(field));
-            node.put(field.name(), fieldDef);
+            node.replace(field.name(), fieldDef);
           }
           return node;
         }
@@ -1232,7 +1234,8 @@ public class AvroData {
     return toConnectData(schema, value, toConnectContext, true);
   }
 
-  private Object toConnectData(Schema schema, Object value, ToConnectContext toConnectContext,
+  @SuppressWarnings("unused")
+private Object toConnectData(Schema schema, Object value, ToConnectContext toConnectContext,
                                boolean doLogicalConversion) {
     validateSchemaValue(schema, value);
     if (value == null) {

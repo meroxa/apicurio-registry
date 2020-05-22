@@ -17,7 +17,6 @@ import io.apicurio.registry.types.ArtifactType;
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder({
-    "id",
     "version",
     "name",
     "description",
@@ -25,17 +24,15 @@ import io.apicurio.registry.types.ArtifactType;
     "createdOn",
     "type",
     "globalId",
-    "state"
+    "state",
+    "id"
 })
 public class VersionMetaData {
 
     /**
+     * 
      * (Required)
-     */
-    @JsonProperty("id")
-    private String id;
-    /**
-     * (Required)
+     * 
      */
     @JsonProperty("version")
     private Integer version;
@@ -44,7 +41,7 @@ public class VersionMetaData {
     @JsonProperty("description")
     private String description;
     /**
-     *
+     * 
      * (Required)
      * 
      */
@@ -86,29 +83,19 @@ public class VersionMetaData {
     @JsonProperty("state")
     @JsonPropertyDescription("Describes the state of an artifact or artifact version.  The following states\nare possible:\n\n* ENABLED\n* DISABLED\n* DEPRECATED\n")
     private ArtifactState state;
+    /**
+     * The artifact id.
+     * (Required)
+     * 
+     */
+    @JsonProperty("id")
+    @JsonPropertyDescription("The artifact id.")
+    private String id;
 
     /**
      * 
      * (Required)
-     *
-     */
-    @JsonProperty("id")
-    public String getId() {
-        return id;
-    }
-
-    /**
-     *
-     * (Required)
-     *
-     */
-    @JsonProperty("id")
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    /**
-     * (Required)
+     * 
      */
     @JsonProperty("version")
     public Integer getVersion() {
@@ -116,7 +103,9 @@ public class VersionMetaData {
     }
 
     /**
+     * 
      * (Required)
+     * 
      */
     @JsonProperty("version")
     public void setVersion(Integer version) {
@@ -251,6 +240,26 @@ public class VersionMetaData {
     @JsonProperty("state")
     public void setState(ArtifactState state) {
         this.state = state;
+    }
+
+    /**
+     * The artifact id.
+     * (Required)
+     * 
+     */
+    @JsonProperty("id")
+    public String getId() {
+        return id;
+    }
+
+    /**
+     * The artifact id.
+     * (Required)
+     * 
+     */
+    @JsonProperty("id")
+    public void setId(String id) {
+        this.id = id;
     }
 
 }

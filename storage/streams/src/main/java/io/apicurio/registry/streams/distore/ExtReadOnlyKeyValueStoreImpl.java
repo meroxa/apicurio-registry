@@ -1,38 +1,32 @@
 package io.apicurio.registry.streams.distore;
 
-import org.apache.kafka.common.utils.CloseableIterator;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
+
+import java.util.stream.Stream;
 
 /**
  * Local ExtReadOnlyKeyValueStore impl.
  */
 public class ExtReadOnlyKeyValueStoreImpl<K, V> implements ExtReadOnlyKeyValueStore<K, V> {
     private final ReadOnlyKeyValueStore<K, V> delegate;
+    private final FilterPredicate<K, V> filterPredicate;
 
-    public ExtReadOnlyKeyValueStoreImpl(ReadOnlyKeyValueStore<K, V> delegate) {
+    public ExtReadOnlyKeyValueStoreImpl(ReadOnlyKeyValueStore<K, V> delegate, FilterPredicate<K, V> filterPredicate) {
         this.delegate = delegate;
+        this.filterPredicate = filterPredicate;
     }
 
     @Override
-    public CloseableIterator<K> allKeys() {
-        KeyValueIterator<K, V> iter = all();
-        return new CloseableIterator<K>() {
-            @Override
-            public boolean hasNext() {
-                return iter.hasNext();
-            }
+    public Stream<K> allKeys() {
+        return StreamToKeyValueIteratorAdapter.toStream(all()).map(kv -> kv.key);
+    }
 
-            @Override
-            public K next() {
-                return iter.next().key;
-            }
-
-            @Override
-            public void close() {
-                iter.close();
-            }
-        };
+    @Override
+    public Stream<KeyValue<K, V>> filter(String filter, String over) {
+        return StreamToKeyValueIteratorAdapter.toStream(all())
+            .filter(kv -> filterPredicate.test(filter, over, kv.key, kv.value));
     }
 
     @Override

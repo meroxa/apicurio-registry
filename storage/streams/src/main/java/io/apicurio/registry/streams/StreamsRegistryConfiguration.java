@@ -2,23 +2,11 @@ package io.apicurio.registry.streams;
 
 import com.google.common.collect.ImmutableMap;
 import io.apicurio.registry.storage.proto.Str;
-import io.apicurio.registry.streams.diservice.AsyncBiFunctionService;
-import io.apicurio.registry.streams.diservice.AsyncBiFunctionServiceGrpcLocalDispatcher;
-import io.apicurio.registry.streams.diservice.DefaultGrpcChannelProvider;
-import io.apicurio.registry.streams.diservice.DistributedAsyncBiFunctionService;
-import io.apicurio.registry.streams.diservice.LocalService;
+import io.apicurio.registry.streams.diservice.*;
 import io.apicurio.registry.streams.diservice.proto.AsyncBiFunctionServiceGrpc;
-import io.apicurio.registry.streams.distore.DistributedReadOnlyKeyValueStore;
-import io.apicurio.registry.streams.distore.ExtReadOnlyKeyValueStore;
-import io.apicurio.registry.streams.distore.KeyValueSerde;
-import io.apicurio.registry.streams.distore.KeyValueStoreGrpcImplLocalDispatcher;
-import io.apicurio.registry.streams.distore.UnknownStatusDescriptionInterceptor;
+import io.apicurio.registry.streams.distore.*;
 import io.apicurio.registry.streams.distore.proto.KeyValueStoreGrpc;
-import io.apicurio.registry.streams.utils.ForeachActionDispatcher;
-import io.apicurio.registry.streams.utils.Lifecycle;
-import io.apicurio.registry.streams.utils.LoggingStateRestoreListener;
-import io.apicurio.registry.streams.utils.StateService;
-import io.apicurio.registry.streams.utils.WaitForDataService;
+import io.apicurio.registry.streams.utils.*;
 import io.apicurio.registry.types.Current;
 import io.apicurio.registry.types.provider.ArtifactTypeUtilProviderFactory;
 import io.apicurio.registry.utils.ConcurrentUtil;
@@ -42,15 +30,15 @@ import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.util.Arrays;
-import java.util.Properties;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Observes;
 import javax.enterprise.inject.Disposes;
 import javax.enterprise.inject.Produces;
 import javax.inject.Singleton;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.Arrays;
+import java.util.Properties;
 
 /**
  * @author Ales Justin
@@ -71,7 +59,10 @@ public class StreamsRegistryConfiguration {
     @Produces
     @ApplicationScoped
     public StreamsProperties streamsProperties(
-        @RegistryProperties("registry.streams.topology.") Properties properties
+        @RegistryProperties(
+            value = "registry.streams.topology.",
+            empties = {"ssl.endpoint.identification.algorithm="}
+        ) Properties properties
     ) {
         return new StreamsPropertiesImpl(properties);
     }
@@ -79,7 +70,10 @@ public class StreamsRegistryConfiguration {
     @Produces
     @ApplicationScoped
     public ProducerActions<String, Str.StorageValue> storageProducer(
-        @RegistryProperties("registry.streams.storage-producer.") Properties properties
+        @RegistryProperties(
+            value = "registry.streams.storage-producer.",
+            empties = {"ssl.endpoint.identification.algorithm="}
+        ) Properties properties
     ) {
         return new AsyncProducer<>(
             properties,
@@ -126,10 +120,17 @@ public class StreamsRegistryConfiguration {
 
     @Produces
     @ApplicationScoped
+    public FilterPredicate<String, Str.Data> filterPredicate() {
+        return StreamsRegistryStorage.createFilterPredicate();
+    }
+
+    @Produces
+    @ApplicationScoped
     public ExtReadOnlyKeyValueStore<String, Str.Data> storageKeyValueStore(
         KafkaStreams streams,
         HostInfo storageLocalHost,
-        StreamsProperties properties
+        StreamsProperties properties,
+        FilterPredicate<String, Str.Data> filterPredicate
     ) {
         return new DistributedReadOnlyKeyValueStore<>(
             streams,
@@ -137,7 +138,8 @@ public class StreamsRegistryConfiguration {
             properties.getStorageStoreName(),
             Serdes.String(), ProtoSerde.parsedWith(Str.Data.parser()),
             new DefaultGrpcChannelProvider(),
-            true
+            true,
+            filterPredicate
         );
     }
 
@@ -158,7 +160,8 @@ public class StreamsRegistryConfiguration {
             properties.getGlobalIdStoreName(),
             Serdes.Long(), ProtoSerde.parsedWith(Str.TupleValue.parser()),
             new DefaultGrpcChannelProvider(),
-            true
+            true,
+            (filter, over, id, tuple) -> true
         );
     }
 
@@ -324,7 +327,8 @@ public class StreamsRegistryConfiguration {
     @Singleton
     public KeyValueStoreGrpc.KeyValueStoreImplBase streamsKeyValueStoreGrpcImpl(
         KafkaStreams streams,
-        StreamsProperties props
+        StreamsProperties props,
+        FilterPredicate<String, Str.Data> filterPredicate
     ) {
         return new KeyValueStoreGrpcImplLocalDispatcher(
             streams,
@@ -337,7 +341,8 @@ public class StreamsRegistryConfiguration {
                 .register(
                     props.getGlobalIdStoreName(),
                     Serdes.Long(), ProtoSerde.parsedWith(Str.TupleValue.parser())
-                )
+                ),
+            filterPredicate
         );
     }
 
